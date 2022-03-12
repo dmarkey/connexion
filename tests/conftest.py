@@ -4,10 +4,14 @@ import pathlib
 
 import pytest
 from connexion import App
+from connexion.lifecycle import MiddlewareRequest, MiddlewareResponse
+from connexion.middleware import BaseHTTPMiddleware, ConnexionMiddleware
+from connexion.middleware.base import RequestResponseEndpoint
+from connexion.operations import AbstractOperation
 from connexion.security import SyncSecurityHandlerFactory
 from werkzeug.test import Client, EnvironBuilder
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 TEST_FOLDER = pathlib.Path(__file__).parent
 FIXTURES_FOLDER = TEST_FOLDER / 'fixtures'
@@ -135,7 +139,7 @@ def json_datetime_dir():
     return FIXTURES_FOLDER / 'datetime_support'
 
 
-def build_app_from_fixture(api_spec_folder, spec_file='openapi.yaml', **kwargs):
+def build_app_from_fixture(api_spec_folder, spec_file='openapi.yaml', middlewares=None, **kwargs):
     debug = True
     if 'debug' in kwargs:
         debug = kwargs['debug']
@@ -144,6 +148,7 @@ def build_app_from_fixture(api_spec_folder, spec_file='openapi.yaml', **kwargs):
     cnx_app = App(__name__,
                   port=5001,
                   specification_dir=FIXTURES_FOLDER / api_spec_folder,
+                  middlewares=middlewares,
                   debug=debug)
 
     cnx_app.add_api(spec_file, **kwargs)
@@ -254,3 +259,18 @@ def bad_operations_app(request):
     return build_app_from_fixture('bad_operations', request.param,
                                   resolver_error=501)
 
+
+class TestMiddleware(BaseHTTPMiddleware):
+    """Middleware to check if operation is accessible on scope."""
+
+    async def dispatch(self, request: MiddlewareRequest, operation: AbstractOperation,
+                       call_next: RequestResponseEndpoint) -> MiddlewareResponse:
+        response = await call_next(request)
+        response.headers.update({'operation_id': operation.operation_id})
+        return response
+
+
+@pytest.fixture(scope="session", params=SPECS)
+def middleware_app(request):
+    middlewares = ConnexionMiddleware.default_middlewares + [TestMiddleware]
+    return build_app_from_fixture('simple', request.param, middlewares=middlewares)

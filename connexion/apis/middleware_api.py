@@ -1,5 +1,7 @@
 import logging
+import pathlib
 import re
+import typing as t
 
 from starlette.responses import RedirectResponse
 from starlette.responses import Response as StarletteResponse
@@ -8,11 +10,60 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp
 
-from connexion.apis import AbstractSwaggerUIAPI
+from connexion.apis import AbstractMinimalAPI, AbstractSwaggerUIAPI
 from connexion.jsonifier import JSONEncoder, Jsonifier
+from connexion.operations import make_operation, AbstractOperation
+from connexion.resolver import Resolver
+from connexion.security import AsyncSecurityHandlerFactory
 from connexion.utils import yamldumper
 
 logger = logging.getLogger('connexion.apis.middleware')
+
+
+class MiddlewareAPI(AbstractMinimalAPI):
+
+    def __init__(
+            self,
+            specification: t.Union[pathlib.Path, str, dict],
+            base_path: t.Optional[str] = None,
+            arguments: t.Optional[dict] = None,
+            resolver: t.Optional[Resolver] = None,
+            default: ASGIApp = None,
+            resolver_error_handler: t.Optional[t.Callable] = None,
+            debug: bool = False,
+            **kwargs
+    ) -> None:
+        """API implementation on top of Starlette Router for Connexion middleware."""
+        self.router = Router(default=default)
+
+        super().__init__(
+            specification,
+            base_path=base_path,
+            arguments=arguments,
+            resolver=resolver,
+            resolver_error_handler=resolver_error_handler,
+            debug=debug
+        )
+
+    def add_operation(self, path: str, method: str) -> None:
+        operation = make_operation(
+            self.specification,
+            self,
+            path,
+            method,
+            self.resolver
+        )
+        # Don't set decorators in middleware
+        AbstractOperation.function = operation._resolution.function
+        self._add_operation_internal(method, path, operation)
+
+    def _add_operation_internal(self, method: str, path: str, operation: AbstractOperation) -> None:
+        self.router.add_route(path, operation.function, methods=[method])
+
+    @staticmethod
+    def make_security_handler_factory(pass_context_arg_name):
+        """ Create default SecurityHandlerFactory to create all security check handlers """
+        return AsyncSecurityHandlerFactory(pass_context_arg_name)
 
 
 class SwaggerUIAPI(AbstractSwaggerUIAPI):
