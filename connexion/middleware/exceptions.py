@@ -12,10 +12,16 @@ from connexion.exceptions import problem
 class ExceptionMiddleware(StarletteExceptionMiddleware):
 
     def http_exception(self, request: Request, exc: HTTPException) -> Response:
+        try:
+            headers = exc.headers
+        except AttributeError:
+            # Starlette < 0.19
+            headers = {}
+
         connexion_response = problem(title=exc.detail,
                                      detail=exc.detail,
                                      status=exc.status_code,
-                                     headers=exc.headers)
+                                     headers=headers)
 
         return Response(
             content=json.dumps(connexion_response.body),
