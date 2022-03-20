@@ -1,16 +1,12 @@
 import pathlib
 import typing as t
 
-from starlette.exceptions import ExceptionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from connexion.middleware.base import AppMiddleware
+from connexion.middleware.exceptions import ExceptionMiddleware
 from connexion.middleware.routing import RoutingMiddleware
 from connexion.middleware.swagger_ui import SwaggerUIMiddleware
-
-
-class MissingMiddlewareError(Exception):
-    pass
 
 
 class ConnexionMiddleware:

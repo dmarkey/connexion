@@ -1,19 +1,17 @@
 import copy
 import pathlib
 import typing as t
-from functools import partial
 from contextvars import ContextVar
+from functools import partial
 
-import anyio
 from starlette.routing import Router
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from connexion.apis.middleware_api import MiddlewareAPI
 from connexion.lifecycle import MiddlewareRequest, MiddlewareResponse
-from connexion.middleware.base import AppMiddleware
+from connexion.middleware import AppMiddleware
 from connexion.operations import AbstractOperation
 from connexion.resolver import Resolver
-
 
 _default_fn: ContextVar[t.Callable] = ContextVar('DEFAULT_FN')
 
@@ -26,9 +24,12 @@ async def default_fn_callback(scope: Scope, receive: Receive, send: Send) -> Non
     return await _default_fn.get()()
 
 
-async def call_next_callback(operation: AbstractOperation, _request: MiddlewareRequest) \
+async def call_next_callback(operation: AbstractOperation, _request: MiddlewareRequest = None) \
         -> MiddlewareResponse:
-    """Callback to call next app with current request."""
+    """
+    Callback to call next app with current request. This function is registered as a method on
+    an operation, which passes self as the first argument.
+    """
     return await _call_next_fn.get()(operation)
 
 
@@ -81,69 +82,25 @@ class RoutingMiddleware(AppMiddleware):
             await self.app(scope, receive, send)
             return
 
-        async with anyio.create_task_group() as task_group:
-            default_fn = partial(self.app, copy.copy(scope), receive, send)
-            _default_fn.set(default_fn)
+        default_fn = partial(self.app, copy.copy(scope), receive, send)
+        _default_fn.set(default_fn)
 
-            call_next = self._create_call_next(scope, task_group)
-            request = MiddlewareRequest(scope, receive=receive)
-            call_next_ = partial(call_next, request)
-            _call_next_fn.set(call_next_)
+        call_next = self._create_call_next(scope, receive, send)
+        _call_next_fn.set(call_next)
 
-            await self.router(scope, receive, send)
-            await task_group.cancel_scope.cancel()
+        scope['app'] = 'dummy'
+        await self.router(scope, receive, send)
 
-    def _create_call_next(self, scope: Scope, task_group: anyio.abc.TaskGroup) -> t.Callable:
+    def _create_call_next(self, scope: Scope, receive: Receive, send: Send) -> t.Callable:
         """Create callable to call next app."""
 
-        async def call_next(request: MiddlewareRequest) \
-                -> MiddlewareResponse:
-            """Adapted from starlette.middleware.base.BaseHTTPMiddleware"""
-            app_exc: t.Optional[Exception] = None
-            send_stream, recv_stream = anyio.create_memory_object_stream()
-
-            async def coro() -> None:
-                nonlocal app_exc
-
-                async with send_stream:
-                    try:
-                        await self.app(scope, request.receive, send_stream.send)
-                    except Exception as exc:
-                        app_exc = exc
-
-            task_group.start_soon(coro)
-
-            try:
-                message = await recv_stream.receive()
-            except anyio.EndOfStream:
-                if app_exc is not None:
-                    raise app_exc
-                raise RuntimeError("No response returned.")
-
-            assert message["type"] == "http.response.start"
-
-            async def body_stream() -> t.AsyncGenerator[bytes, None]:
-                async with recv_stream:
-                    async for msg in recv_stream:
-                        assert msg["type"] == "http.response.body"
-                        yield msg.get("body", b"")
-
-                if app_exc is not None:
-                    raise app_exc
-
-            response = MiddlewareResponse(
-                status_code=message["status"], content=body_stream()
-            )
-
-            response.raw_headers = message["headers"]
-            return response
+        scope = scope.copy()
 
         async def attach_operation_and_call_next(
-                request: MiddlewareRequest,
-                operation: AbstractOperation
-        ) -> MiddlewareResponse:
+                operation: AbstractOperation,
+        ) -> None:
             """Attach operation to scope and pass it to the next app"""
             scope["operation"] = operation
-            return await call_next(request)
+            return await self.app(scope, receive, send)
 
         return attach_operation_and_call_next

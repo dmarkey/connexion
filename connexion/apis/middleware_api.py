@@ -2,6 +2,7 @@ import logging
 import pathlib
 import re
 import typing as t
+from contextlib import contextmanager
 
 from starlette.responses import RedirectResponse
 from starlette.responses import Response as StarletteResponse
@@ -12,7 +13,7 @@ from starlette.types import ASGIApp
 
 from connexion.apis import AbstractMinimalAPI, AbstractSwaggerUIAPI
 from connexion.jsonifier import JSONEncoder, Jsonifier
-from connexion.operations import make_operation, AbstractOperation
+from connexion.operations import AbstractOperation, make_operation
 from connexion.resolver import Resolver
 from connexion.security import AsyncSecurityHandlerFactory
 from connexion.utils import yamldumper
@@ -53,9 +54,21 @@ class MiddlewareAPI(AbstractMinimalAPI):
             method,
             self.resolver
         )
-        # Don't set decorators in middleware
-        AbstractOperation.function = operation._resolution.function
-        self._add_operation_internal(method, path, operation)
+
+        @contextmanager
+        def patch_operation_function():
+            """Patch the operation function so no decorators are set in the middleware. This
+            should be cleaned up by separating the APIs and Operations between the App and
+            middleware"""
+            original_operation_function = AbstractOperation.function
+            AbstractOperation.function = operation._resolution.function
+            try:
+                yield
+            finally:
+                AbstractOperation.function = original_operation_function
+
+        with patch_operation_function():
+            self._add_operation_internal(method, path, operation)
 
     def _add_operation_internal(self, method: str, path: str, operation: AbstractOperation) -> None:
         self.router.add_route(path, operation.function, methods=[method])

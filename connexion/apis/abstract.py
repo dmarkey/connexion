@@ -14,7 +14,7 @@ from ..exceptions import ResolverError
 from ..http_facts import METHODS
 from ..jsonifier import Jsonifier
 from ..lifecycle import ConnexionResponse
-from ..operations import make_operation, AbstractOperation
+from ..operations import AbstractOperation, make_operation
 from ..options import ConnexionOptions
 from ..resolver import Resolver
 from ..spec import Specification

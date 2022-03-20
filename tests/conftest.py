@@ -4,11 +4,9 @@ import pathlib
 
 import pytest
 from connexion import App
-from connexion.lifecycle import MiddlewareRequest, MiddlewareResponse
-from connexion.middleware import BaseHTTPMiddleware, ConnexionMiddleware
-from connexion.middleware.base import RequestResponseEndpoint
-from connexion.operations import AbstractOperation
+from connexion.middleware import ConnexionMiddleware
 from connexion.security import SyncSecurityHandlerFactory
+from starlette.datastructures import MutableHeaders
 from werkzeug.test import Client, EnvironBuilder
 
 logging.basicConfig(level=logging.INFO)
@@ -260,14 +258,27 @@ def bad_operations_app(request):
                                   resolver_error=501)
 
 
-class TestMiddleware(BaseHTTPMiddleware):
+class TestMiddleware:
     """Middleware to check if operation is accessible on scope."""
 
-    async def dispatch(self, request: MiddlewareRequest, operation: AbstractOperation,
-                       call_next: RequestResponseEndpoint) -> MiddlewareResponse:
-        response = await call_next(request)
-        response.headers.update({'operation_id': operation.operation_id})
-        return response
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        operation = scope['operation']
+
+        async def patched_send(message):
+            if message["type"] != "http.response.start":
+                await send(message)
+                return
+
+            message.setdefault("headers", [])
+            headers = MutableHeaders(scope=message)
+            headers["operation_id"] = operation.operation_id
+
+            await send(message)
+
+        await self.app(scope, receive, patched_send)
 
 
 @pytest.fixture(scope="session", params=SPECS)

@@ -8,8 +8,7 @@ from starlette.routing import Router
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from connexion.apis.middleware_api import SwaggerUIAPI
-
-from .base import AppMiddleware
+from connexion.middleware import AppMiddleware
 
 _default_fn: ContextVar[t.Callable] = ContextVar('DEFAULT_FN')
 
