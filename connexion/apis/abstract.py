@@ -121,12 +121,12 @@ class AbstractMinimalAPI(AbstractSpecAPI):
     ) -> None:
         """Minimal interface of an API, with only functionality related to routing.
         :param specification: OpenAPI specification. Can be provided either as dict, or as path
-                              to file.
+        to file.
         :param base_path: Base path to host the API.
         :param arguments: Jinja arguments to resolve in specification.
         :param resolver: Callable that maps operationID to a function
         :param resolver_error_handler: Callable that generates an Operation used for handling
-                                       ResolveErrors
+        ResolveErrors
         :param debug: Flag to run in debug mode
         """
         super().__init__(*args, **kwargs)
