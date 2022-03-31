@@ -85,7 +85,7 @@ class SecureOperation:
             for scheme_name, required_scopes in security_req.items():
                 security_scheme = self.security_schemes[scheme_name]
 
-                if security_scheme['type'] == 'oauth2':
+                if security_scheme['type'] in ('oauth2', 'openIdConnect'):
                     if oauth:
                         logger.warning("... multiple OAuth2 security schemes in AND fashion not supported", extra=vars(self))
                         break
